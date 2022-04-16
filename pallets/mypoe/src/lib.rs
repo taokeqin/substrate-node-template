@@ -18,6 +18,7 @@ pub mod pallet {
 
 	#[pallet::storage]
 	#[pallet::getter(fn proofs)]
+	/// key: (owner, blockNumber)
 	pub type Proofs<T: Config> =
 		StorageMap<_, Blake2_128Concat, Vec<u8>, (T::AccountId, T::BlockNumber)>;
 
@@ -27,18 +28,21 @@ pub mod pallet {
 	pub enum Event<T: Config> {
 		ClaimCreated(T::AccountId, Vec<u8>),
 		ClaimRevoked(T::AccountId, Vec<u8>),
+		ClaimTransferred(T::AccountId, T::AccountId, Vec<u8>),
 	}
 
 	#[pallet::error]
 	pub enum Error<T> {
 		ProofAlreadyExist,
-		ClaimNotExist,
-		NotClaimOwner,
+		ProofNotExist,
+		NotProofOwner,
+		SelfTransferNotAllowed,
 	}
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(0)]
+		/// use the claim as key, and set the owner fields and blockNumber accordingly, and store to database.
 		pub fn create_claim(origin: OriginFor<T>, claim: Vec<u8>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
 			ensure!(!Proofs::<T>::contains_key(&claim), Error::<T>::ProofAlreadyExist);
@@ -47,13 +51,37 @@ pub mod pallet {
 			Ok(())
 		}
 
+		/// try find the claim, check owner ship with owner and remove it from database.
 		#[pallet::weight(0)]
 		pub fn revoke_claim(origin: OriginFor<T>, claim: Vec<u8>) -> DispatchResult {
 			let who = ensure_signed(origin)?;
-			let (owner, _) = Proofs::<T>::get(&claim).ok_or(Error::<T>::ClaimNotExist)?;
-			ensure!(owner == who, Error::<T>::NotClaimOwner);
+			let (owner, _) = Proofs::<T>::get(&claim).ok_or(Error::<T>::ProofNotExist)?;
+			ensure!(owner == who, Error::<T>::NotProofOwner);
 			Proofs::<T>::remove(&claim);
 			Self::deposit_event(Event::ClaimRevoked(who, claim));
+			Ok(())
+		}
+
+		/// try find the claim, check owner, mutate the owner filed of the data to be receiver.
+		#[pallet::weight(0)]
+		pub fn transfer_claim(
+			origin: OriginFor<T>,
+			claim: Vec<u8>,
+			receiver: T::AccountId,
+		) -> DispatchResult {
+			let who = ensure_signed(origin)?;
+			let (owner, _) = Proofs::<T>::get(&claim).ok_or(Error::<T>::ProofNotExist)?;
+			ensure!(owner == who, Error::<T>::NotProofOwner);
+			ensure!(who != receiver, Error::<T>::SelfTransferNotAllowed);
+			Proofs::<T>::try_mutate(&claim, |proof| {
+				if let Some(value) = proof {
+					value.0 = receiver.clone();
+					return Ok(());
+				}
+				Err(Error::<T>::ProofNotExist)
+			})
+			.map_err(|_| Error::<T>::ProofNotExist)?;
+			Self::deposit_event(Event::ClaimTransferred(who, receiver, claim));
 			Ok(())
 		}
 	}
