@@ -279,6 +279,11 @@ impl pallet_template::Config for Runtime {
 	type Event = Event;
 }
 
+/// Configure the pallet-mypoe in pallets/mypoe.
+impl pallet_mypoe::Config for Runtime {
+	type Event = Event;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub enum Runtime where
@@ -296,6 +301,7 @@ construct_runtime!(
 		Sudo: pallet_sudo,
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
+		MyPoeModule: pallet_mypoe,
 	}
 );
 
